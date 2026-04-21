@@ -1,0 +1,89 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - claude/shake-flashlight-toggle-9xpuu
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: assembleDebug
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Stamp APK with commit SHA
+        id: stamp
+        working-directory: android
+        run: |
+          src=app/build/outputs/apk/debug/app-debug.apk
+          dst=app/build/outputs/apk/debug/shake-flashlight-${GITHUB_SHA:0:7}.apk
+          cp "$src" "$dst"
+          echo "apk=$dst" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          ls -la app/build/outputs/apk/debug/
+          sha256sum "$dst"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shake-flashlight-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Publish APK to "apk-latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: Latest debug APK
+          body: |
+            Debug-signed APK built automatically from
+            `${{ github.ref_name }}` at commit
+            [`${{ steps.stamp.outputs.sha_short }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}).
+
+            Sideload on the Galaxy S23:
+            1. Download `shake-flashlight-${{ steps.stamp.outputs.sha_short }}.apk` below.
+            2. Open the file in **My Files** on the phone.
+            3. When prompted, allow "Install unknown apps" for the file manager.
+            4. Install, open, grant **Camera** (and on Android 13+ **Notifications**).
+            5. Flip **Start detection**, then double-chop the phone (two quick downward flicks) to toggle the flashlight.
+          files: android/app/build/outputs/apk/debug/*.apk
+          prerelease: true
+          make_latest: 'false'
