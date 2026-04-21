@@ -13,6 +13,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -28,6 +29,15 @@ import androidx.compose.ui.unit.dp
 import com.andre.shakeflashlight.GestureMode
 import com.andre.shakeflashlight.R
 import com.andre.shakeflashlight.SensitivityProfile
+import com.andre.shakeflashlight.ShakePrefs
+
+sealed class RecordingState {
+    data object Idle : RecordingState()
+    data class Countdown(val secondsRemaining: Int) : RecordingState()
+    data object Recording : RecordingState()
+    data class Saved(val durationMs: Int, val peakMagnitude: Float) : RecordingState()
+    data class Error(val message: String) : RecordingState()
+}
 
 @Composable
 fun AppScreen(
@@ -35,10 +45,17 @@ fun AppScreen(
     hasFlash: Boolean,
     sensitivityLevel: Int,
     gestureMode: GestureMode,
+    strictnessLevel: Int,
+    hasCustomPattern: Boolean,
+    patternSummary: String?,
+    recordingState: RecordingState,
     onToggleDetection: (Boolean) -> Unit,
     onSensitivityChange: (Int) -> Unit,
     onGestureChange: (GestureMode) -> Unit,
-    onTestFlashlight: () -> Unit
+    onStrictnessChange: (Int) -> Unit,
+    onTestFlashlight: () -> Unit,
+    onStartRecording: () -> Unit,
+    onCancelRecording: () -> Unit
 ) {
     MaterialTheme {
         Scaffold { padding ->
@@ -72,9 +89,17 @@ fun AppScreen(
 
                 DetectionSwitchRow(
                     checked = detectionEnabled,
-                    enabled = hasFlash,
+                    enabled = hasFlash &&
+                        (detectionEnabled || gestureReady(gestureMode, hasCustomPattern)),
                     onCheckedChange = onToggleDetection
                 )
+                if (gestureMode == GestureMode.CUSTOM_MOTION && !hasCustomPattern) {
+                    Text(
+                        text = stringResource(R.string.custom_pattern_required_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
 
                 Button(onClick = onTestFlashlight, enabled = hasFlash) {
                     Text(stringResource(R.string.test_flashlight))
@@ -95,10 +120,27 @@ fun AppScreen(
                     enabled = hasFlash,
                     onSelect = onGestureChange
                 )
+
+                if (gestureMode == GestureMode.CUSTOM_MOTION) {
+                    Spacer(Modifier.height(8.dp))
+                    CustomPatternSection(
+                        hasPattern = hasCustomPattern,
+                        patternSummary = patternSummary,
+                        strictness = strictnessLevel,
+                        recordingState = recordingState,
+                        enabled = hasFlash,
+                        onStartRecording = onStartRecording,
+                        onCancelRecording = onCancelRecording,
+                        onStrictnessChange = onStrictnessChange
+                    )
+                }
             }
         }
     }
 }
+
+private fun gestureReady(mode: GestureMode, hasCustomPattern: Boolean): Boolean =
+    mode != GestureMode.CUSTOM_MOTION || hasCustomPattern
 
 @Composable
 private fun DetectionSwitchRow(
@@ -187,4 +229,109 @@ private fun GestureSection(
             }
         }
     }
+}
+
+@Composable
+private fun CustomPatternSection(
+    hasPattern: Boolean,
+    patternSummary: String?,
+    strictness: Int,
+    recordingState: RecordingState,
+    enabled: Boolean,
+    onStartRecording: () -> Unit,
+    onCancelRecording: () -> Unit,
+    onStrictnessChange: (Int) -> Unit
+) {
+    Text(
+        text = stringResource(R.string.custom_pattern_title),
+        style = MaterialTheme.typography.titleMedium
+    )
+
+    when (recordingState) {
+        RecordingState.Idle, is RecordingState.Saved, is RecordingState.Error -> {
+            val statusText = when {
+                recordingState is RecordingState.Saved ->
+                    stringResource(
+                        R.string.custom_pattern_saved,
+                        recordingState.durationMs / 1000f,
+                        recordingState.peakMagnitude
+                    )
+                recordingState is RecordingState.Error -> recordingState.message
+                hasPattern && patternSummary != null ->
+                    stringResource(R.string.custom_pattern_ready, patternSummary)
+                else -> stringResource(R.string.custom_pattern_none)
+            }
+            val statusColor =
+                if (recordingState is RecordingState.Error)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.onSurface
+
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = statusColor
+            )
+            Button(onClick = onStartRecording, enabled = enabled) {
+                Text(
+                    stringResource(
+                        if (hasPattern) R.string.custom_pattern_rerecord
+                        else R.string.custom_pattern_record
+                    )
+                )
+            }
+        }
+
+        is RecordingState.Countdown -> {
+            Text(
+                text = stringResource(
+                    R.string.custom_pattern_countdown,
+                    recordingState.secondsRemaining
+                ),
+                style = MaterialTheme.typography.headlineSmall
+            )
+            OutlinedButton(onClick = onCancelRecording) {
+                Text(stringResource(R.string.custom_pattern_cancel))
+            }
+        }
+
+        RecordingState.Recording -> {
+            Text(
+                text = stringResource(R.string.custom_pattern_recording),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            OutlinedButton(onClick = onCancelRecording) {
+                Text(stringResource(R.string.custom_pattern_cancel))
+            }
+        }
+    }
+
+    Spacer(Modifier.height(4.dp))
+
+    val strictnessLabels = stringArrayResource(R.array.strictness_labels)
+    val strictnessClamped = strictness.coerceIn(0, ShakePrefs.STRICTNESS_STEPS - 1)
+
+    Text(
+        text = stringResource(R.string.strictness_title),
+        style = MaterialTheme.typography.titleMedium
+    )
+    Text(
+        text = strictnessLabels[strictnessClamped],
+        style = MaterialTheme.typography.bodyLarge
+    )
+    Slider(
+        value = strictnessClamped.toFloat(),
+        onValueChange = {
+            onStrictnessChange(it.toInt().coerceIn(0, ShakePrefs.STRICTNESS_STEPS - 1))
+        },
+        valueRange = 0f..(ShakePrefs.STRICTNESS_STEPS - 1).toFloat(),
+        steps = ShakePrefs.STRICTNESS_STEPS - 2,
+        enabled = enabled && hasPattern,
+        modifier = Modifier.fillMaxWidth()
+    )
+    Text(
+        text = stringResource(R.string.strictness_hint),
+        style = MaterialTheme.typography.bodySmall
+    )
 }

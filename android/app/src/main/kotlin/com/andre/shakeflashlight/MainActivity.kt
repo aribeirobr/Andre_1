@@ -17,11 +17,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.andre.shakeflashlight.ui.AppScreen
+import com.andre.shakeflashlight.ui.RecordingState
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
     private lateinit var torch: TorchController
+    private var activeRecorder: PatternRecorder? = null
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -48,16 +50,25 @@ class MainActivity : ComponentActivity() {
             var gesture by remember {
                 mutableStateOf(ShakePrefs.gestureMode(prefs))
             }
+            var strictness by remember {
+                mutableIntStateOf(ShakePrefs.strictness(prefs))
+            }
+            var pattern by remember {
+                mutableStateOf(ShakePrefs.customPattern(prefs))
+            }
+            var recordingState: RecordingState by remember {
+                mutableStateOf(RecordingState.Idle)
+            }
 
-            // Keep UI state in sync with prefs even when changed elsewhere (unlikely,
-            // but defensive — the service also writes nothing, but this is cheap).
             DisposableEffect(Unit) {
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                     when (key) {
-                        ShakePrefs.KEY_SENSITIVITY  -> sensitivity = ShakePrefs.sensitivity(prefs)
-                        ShakePrefs.KEY_GESTURE_MODE -> gesture = ShakePrefs.gestureMode(prefs)
-                        ShakePrefs.KEY_DETECTION_ON ->
+                        ShakePrefs.KEY_SENSITIVITY     -> sensitivity = ShakePrefs.sensitivity(prefs)
+                        ShakePrefs.KEY_GESTURE_MODE    -> gesture = ShakePrefs.gestureMode(prefs)
+                        ShakePrefs.KEY_DETECTION_ON    ->
                             detectionOn = prefs.getBoolean(ShakePrefs.KEY_DETECTION_ON, false)
+                        ShakePrefs.KEY_CUSTOM_PATTERN  -> pattern = ShakePrefs.customPattern(prefs)
+                        ShakePrefs.KEY_MATCH_STRICTNESS -> strictness = ShakePrefs.strictness(prefs)
                     }
                 }
                 prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -69,6 +80,12 @@ class MainActivity : ComponentActivity() {
                 hasFlash = torch.hasFlash(),
                 sensitivityLevel = sensitivity,
                 gestureMode = gesture,
+                strictnessLevel = strictness,
+                hasCustomPattern = pattern != null,
+                patternSummary = pattern?.let {
+                    "${"%.1f".format(it.durationMs / 1000f)}s, peak ${"%.1f".format(it.peakMagnitude)} m/s²"
+                },
+                recordingState = recordingState,
                 onToggleDetection = { enabled ->
                     detectionOn = enabled
                     prefs.edit().putBoolean(ShakePrefs.KEY_DETECTION_ON, enabled).apply()
@@ -82,7 +99,20 @@ class MainActivity : ComponentActivity() {
                     gesture = mode
                     prefs.edit().putString(ShakePrefs.KEY_GESTURE_MODE, mode.prefValue).apply()
                 },
-                onTestFlashlight = { torch.toggle() }
+                onStrictnessChange = { level ->
+                    strictness = level
+                    prefs.edit().putInt(ShakePrefs.KEY_MATCH_STRICTNESS, level).apply()
+                },
+                onTestFlashlight = { torch.toggle() },
+                onStartRecording = {
+                    if (recordingState != RecordingState.Idle) return@AppScreen
+                    startRecording { state -> recordingState = state }
+                },
+                onCancelRecording = {
+                    activeRecorder?.cancel()
+                    activeRecorder = null
+                    recordingState = RecordingState.Idle
+                }
             )
         }
 
@@ -91,8 +121,46 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        activeRecorder?.cancel()
+        activeRecorder = null
         torch.release()
         super.onDestroy()
+    }
+
+    private fun startRecording(onState: (RecordingState) -> Unit) {
+        val recorder = PatternRecorder(
+            context = this,
+            callbacks = object : PatternRecorder.Callbacks {
+                override fun onCountdownTick(secondsRemaining: Int) {
+                    onState(
+                        if (secondsRemaining <= 0)
+                            RecordingState.Recording
+                        else
+                            RecordingState.Countdown(secondsRemaining)
+                    )
+                }
+                override fun onRecordingStarted() {
+                    onState(RecordingState.Recording)
+                }
+                override fun onRecorded(pattern: MotionPattern) {
+                    prefs.edit()
+                        .putString(ShakePrefs.KEY_CUSTOM_PATTERN, pattern.encode())
+                        .apply()
+                    onState(RecordingState.Saved(
+                        durationMs = pattern.durationMs,
+                        peakMagnitude = pattern.peakMagnitude
+                    ))
+                    activeRecorder = null
+                }
+                override fun onError(message: String) {
+                    onState(RecordingState.Error(message))
+                    activeRecorder = null
+                }
+            }
+        )
+        activeRecorder = recorder
+        onState(RecordingState.Countdown(3))
+        recorder.arm()
     }
 
     private fun ensurePermissions() {

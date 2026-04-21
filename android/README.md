@@ -66,14 +66,25 @@ and hardware are working before relying on the gesture.
 
 ## Choosing a gesture
 
-The app offers four gestures — pick whichever feels most natural:
+The app offers five gestures — pick whichever feels most natural:
 
-| Gesture       | Motion                                                           |
-| ------------- | ---------------------------------------------------------------- |
-| Double chop   | Two quick downward wrist-flicks (~1 s apart). Motorola-style.    |
-| Single shake  | One firm shake in any direction. Easiest; may false-trigger.     |
-| Triple shake  | Three shakes in a row within ~1.5 s. Very hard to trigger by accident. |
-| Wrist twist   | Flip the phone quickly on its screen axis (wrist rotation ~90°). Uses the gyroscope. |
+| Gesture         | Motion                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------- |
+| Double chop     | Two quick downward wrist-flicks (~1 s apart). Motorola-style.                          |
+| Single shake    | One firm shake in any direction. Easiest; may false-trigger.                           |
+| Triple shake    | Three shakes in a row within ~1.5 s. Very hard to trigger by accident.                 |
+| Wrist twist     | Flip the phone quickly on its screen axis (wrist rotation ~90°). Uses the gyroscope.   |
+| Custom motion   | Record your own motion (e.g. an "L", a figure-8, a specific shake pattern). See below. |
+
+### Custom motion
+
+Select **Custom motion** and tap **Record pattern**. A 3-second countdown
+runs, then the app records your linear-acceleration trace for 2 seconds —
+do the motion you want to use during that window. Incoming motion is then
+compared to the recorded trace with Dynamic Time Warping (DTW). A
+**Match strictness** slider (Very loose → Very strict) sets how close a
+live motion must be to the recorded one to fire. Start loose, tighten only
+if the torch toggles by accident.
 
 ## Tuning sensitivity
 

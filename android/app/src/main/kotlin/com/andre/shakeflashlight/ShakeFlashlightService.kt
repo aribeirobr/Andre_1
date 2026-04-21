@@ -30,8 +30,11 @@ class ShakeFlashlightService : Service(), SensorEventListener {
     private var currentMode: GestureMode = GestureMode.DEFAULT
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == ShakePrefs.KEY_SENSITIVITY || key == ShakePrefs.KEY_GESTURE_MODE) {
-            rebuildRecognizer()
+        when (key) {
+            ShakePrefs.KEY_SENSITIVITY,
+            ShakePrefs.KEY_GESTURE_MODE,
+            ShakePrefs.KEY_CUSTOM_PATTERN,
+            ShakePrefs.KEY_MATCH_STRICTNESS -> rebuildRecognizer()
         }
     }
 
@@ -89,10 +92,11 @@ class ShakeFlashlightService : Service(), SensorEventListener {
         val fire = { torch.toggle(); Unit }
 
         recognizer = when (mode) {
-            GestureMode.DOUBLE_CHOP  -> DoubleChopDetector(profile, fire)
-            GestureMode.SINGLE_SHAKE -> SingleShakeDetector(profile, fire)
-            GestureMode.TRIPLE_SHAKE -> TripleShakeDetector(profile, fire)
-            GestureMode.WRIST_TWIST  -> WristTwistDetector(profile, fire)
+            GestureMode.DOUBLE_CHOP   -> DoubleChopDetector(profile, fire)
+            GestureMode.SINGLE_SHAKE  -> SingleShakeDetector(profile, fire)
+            GestureMode.TRIPLE_SHAKE  -> TripleShakeDetector(profile, fire)
+            GestureMode.WRIST_TWIST   -> WristTwistDetector(profile, fire)
+            GestureMode.CUSTOM_MOTION -> buildCustomDetector(fire) ?: NullRecognizer
         }
         currentMode = mode
 
@@ -147,6 +151,13 @@ class ShakeFlashlightService : Service(), SensorEventListener {
         } else {
             startForeground(NOTIF_ID, notification)
         }
+    }
+
+    private fun buildCustomDetector(fire: () -> Unit): CustomPatternDetector? {
+        val pattern = ShakePrefs.customPattern(prefs) ?: return null
+        val strictness = ShakePrefs.strictness(prefs)
+        val threshold = ShakePrefs.strictnessThreshold(strictness)
+        return CustomPatternDetector(pattern, threshold, fire)
     }
 
     private object NullRecognizer : GestureRecognizer

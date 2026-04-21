@@ -24,6 +24,29 @@
     <string name="gesture_single_shake">Single shake</string>
     <string name="gesture_triple_shake">Triple shake</string>
     <string name="gesture_wrist_twist">Wrist twist (flip the phone)</string>
+    <string name="gesture_custom_motion">Custom motion (record your own)</string>
+
+    <string name="custom_pattern_required_hint">Record a motion below before starting detection.</string>
+    <string name="custom_pattern_title">Custom pattern</string>
+    <string name="custom_pattern_none">No pattern recorded yet. Tap Record and perform the motion you want to use.</string>
+    <string name="custom_pattern_ready">Pattern saved (%1$s). Tap Re-record to replace it.</string>
+    <string name="custom_pattern_saved">Saved a new pattern: %1$.1fs, peak %2$.1f m/s². Detection will use it as soon as you re-enable it.</string>
+    <string name="custom_pattern_record">Record pattern</string>
+    <string name="custom_pattern_rerecord">Re-record pattern</string>
+    <string name="custom_pattern_cancel">Cancel</string>
+    <string name="custom_pattern_countdown">Starting in %1$d…</string>
+    <string name="custom_pattern_recording">Recording… do the motion now</string>
+
+    <string name="strictness_title">Match strictness</string>
+    <string name="strictness_hint">How closely your motion must match the recorded pattern to fire. Lower it if the pattern never matches; raise it if the torch toggles without you trying.</string>
+
+    <string-array name="strictness_labels">
+        <item>Very loose</item>
+        <item>Loose</item>
+        <item>Medium</item>
+        <item>Strict</item>
+        <item>Very strict</item>
+    </string-array>
 
     <string name="notif_channel_name">Shake detection</string>
     <string name="notif_channel_desc">Runs in the background so shake gestures work with the screen off.</string>
