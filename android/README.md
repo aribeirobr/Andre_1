@@ -57,21 +57,32 @@ cd android
    notification).
 7. Flip the **Start detection** switch. The notification **"Shake detection
    running"** appears.
-8. Hold the phone screen-up and do two quick downward chops (wrist only,
-   ~15 cm). The torch toggles on. Repeat to toggle off.
+8. Pick a **Gesture** and **Sensitivity** in the UI, then perform the
+   gesture. The torch toggles on; repeat to toggle off. Defaults are
+   *Double chop* at *Normal* sensitivity.
 
 Use the **Test flashlight** button first to confirm your camera permission
 and hardware are working before relying on the gesture.
 
-## Tuning the gesture
+## Choosing a gesture
 
-Thresholds live at the top of `app/src/main/kotlin/com/andre/shakeflashlight/ChopDetector.kt`:
+The app offers four gestures — pick whichever feels most natural:
 
-| Constant             | Default  | Effect                                       |
-| -------------------- | -------- | -------------------------------------------- |
-| `CHOP_THRESHOLD`     | 14 m/s²  | Raise to require harder chops                |
-| `SETTLE_THRESHOLD`   | 4 m/s²   | How quiet a chop must end at                 |
-| `MAX_CHOP_DURATION_MS` | 250 ms | How long a single chop can last              |
-| `MIN_INTER_CHOP_MS`  | 120 ms   | Minimum gap between the two chops            |
-| `MAX_INTER_CHOP_MS`  | 800 ms   | Maximum gap between the two chops            |
-| `POST_FIRE_COOLDOWN_MS` | 600 ms | Ignore shakes for a moment after firing      |
+| Gesture       | Motion                                                           |
+| ------------- | ---------------------------------------------------------------- |
+| Double chop   | Two quick downward wrist-flicks (~1 s apart). Motorola-style.    |
+| Single shake  | One firm shake in any direction. Easiest; may false-trigger.     |
+| Triple shake  | Three shakes in a row within ~1.5 s. Very hard to trigger by accident. |
+| Wrist twist   | Flip the phone quickly on its screen axis (wrist rotation ~90°). Uses the gyroscope. |
+
+## Tuning sensitivity
+
+The **Sensitivity** slider on the main screen has 5 steps from *Very sensitive*
+to *Very stiff*. Lower it if gestures are too hard to trigger; raise it if the
+torch toggles accidentally. Exact thresholds live in
+`app/src/main/kotlin/com/andre/shakeflashlight/SensitivityProfile.kt` and
+can be tweaked there.
+
+Gesture detection logic is in
+`app/src/main/kotlin/com/andre/shakeflashlight/ChopDetector.kt`
+(chop/shake detectors) and `WristTwistDetector.kt` (gyro-based twist).

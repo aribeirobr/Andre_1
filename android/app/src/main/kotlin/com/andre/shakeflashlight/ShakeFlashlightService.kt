@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -20,48 +21,90 @@ import androidx.core.app.NotificationCompat
 class ShakeFlashlightService : Service(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
-    private var accelerometer: Sensor? = null
+    private var accelSensor: Sensor? = null
+    private var gyroSensor: Sensor? = null
     private lateinit var torch: TorchController
-    private lateinit var detector: ChopDetector
+    private lateinit var prefs: SharedPreferences
+
+    private var recognizer: GestureRecognizer = NullRecognizer
+    private var currentMode: GestureMode = GestureMode.DEFAULT
+
+    private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == ShakePrefs.KEY_SENSITIVITY || key == ShakePrefs.KEY_GESTURE_MODE) {
+            rebuildRecognizer()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        gyroSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         torch = TorchController(this)
-        detector = ChopDetector(onDoubleChop = { torch.toggle() })
+        prefs = ShakePrefs.get(this)
+        prefs.registerOnSharedPreferenceChangeListener(prefListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startInForeground()
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
+        rebuildRecognizer()
         return START_STICKY
     }
 
     override fun onDestroy() {
         sensorManager.unregisterListener(this)
+        prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         torch.turnOff()
         torch.release()
         super.onDestroy()
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        val (x, y, z) = if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-            // Approximate linear acceleration by subtracting 1g off the dominant axis.
-            // Good enough as a fallback — Galaxy S23 has a real linear-accel sensor.
-            Triple(event.values[0], event.values[1], event.values[2] - GRAVITY)
-        } else {
-            Triple(event.values[0], event.values[1], event.values[2])
+        val nowMs = SystemClock.elapsedRealtime()
+        when (event.sensor.type) {
+            Sensor.TYPE_LINEAR_ACCELERATION ->
+                recognizer.onAccel(event.values[0], event.values[1], event.values[2], nowMs)
+            Sensor.TYPE_ACCELEROMETER ->
+                recognizer.onAccel(
+                    event.values[0],
+                    event.values[1],
+                    event.values[2] - GRAVITY,
+                    nowMs
+                )
+            Sensor.TYPE_GYROSCOPE ->
+                recognizer.onGyro(event.values[0], event.values[1], event.values[2], nowMs)
         }
-        detector.onSample(x, y, z, SystemClock.elapsedRealtime())
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    private fun rebuildRecognizer() {
+        sensorManager.unregisterListener(this)
+
+        val mode = ShakePrefs.gestureMode(prefs)
+        val profile = SensitivityProfile.forLevel(ShakePrefs.sensitivity(prefs))
+        val fire = { torch.toggle(); Unit }
+
+        recognizer = when (mode) {
+            GestureMode.DOUBLE_CHOP  -> DoubleChopDetector(profile, fire)
+            GestureMode.SINGLE_SHAKE -> SingleShakeDetector(profile, fire)
+            GestureMode.TRIPLE_SHAKE -> TripleShakeDetector(profile, fire)
+            GestureMode.WRIST_TWIST  -> WristTwistDetector(profile, fire)
+        }
+        currentMode = mode
+
+        accelSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+        if (mode.usesGyroscope) {
+            gyroSensor?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+        }
+    }
 
     private fun startInForeground() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -106,16 +149,11 @@ class ShakeFlashlightService : Service(), SensorEventListener {
         }
     }
 
+    private object NullRecognizer : GestureRecognizer
+
     companion object {
         private const val CHANNEL_ID = "shake_detector"
         private const val NOTIF_ID = 101
         private const val GRAVITY = 9.81f
-
-        fun isRunning(context: Context): Boolean {
-            // There is no public API to query service state cheaply, so callers
-            // track this in their own process with a shared preference or a
-            // companion state object.  See MainActivity.
-            return false
-        }
     }
 }
